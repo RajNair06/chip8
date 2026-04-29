@@ -47,39 +47,91 @@ func (c *Chip8) DumpState() {
 	
 	for i := 0; i < 16; i++ {
 		println("V", i, ":", c.V[i])
+		fmt.Printf("DT: %d | ST: %d\n", c.DelayTimer, c.SoundTimer)
 	}
 }
 
-func (c *Chip8) printInstruction(opcode uint16){
-		x:=(opcode & 0x0F00)>>8
-		y:=(opcode & 0x00F0)>>4
-		n:=opcode & 0x000F
-		nn:=opcode & 0x00FF
-		nnn:=opcode & 0x0FFF
+func (c *Chip8) printInstruction(opcode uint16) {
+	x := (opcode & 0x0F00) >> 8
+	y := (opcode & 0x00F0) >> 4
+	n := opcode & 0x000F
+	nn := opcode & 0x00FF
+	nnn := opcode & 0x0FFF
 
 	switch opcode & 0xF000 {
-	case 0x6000: 
-	fmt.Printf("LD V%X, 0x%X\n", x, nn) 
-	case 0x7000: 
-	fmt.Printf("ADD V%X, 0x%X\n", x, nn) 
-	case 0xA000: 
-	fmt.Printf("LD I, 0x%X\n", nnn) 
-	case 0xD000: fmt.Printf("DRW V%X, V%X, %X\n", x, y, n) 
 	case 0x0000:
-	switch opcode {
-	case 0x00E0:
-		fmt.Println("CLS")
-	case 0x00EE:
-		fmt.Println("RET")
+		switch opcode {
+		case 0x00E0:
+			fmt.Println("CLS")
+		case 0x00EE:
+			fmt.Println("RET")
+		default:
+			fmt.Printf("SYS 0x%X\n", nnn)
+		}
+	case 0x1000:
+    	fmt.Printf("JP 0x%03X\n", nnn)
+	case 0x6000:
+		fmt.Printf("LD V%X, 0x%02X\n", x, nn)
+	case 0x7000:
+		fmt.Printf("ADD V%X, 0x%02X\n", x, nn)
+
+	case 0x8000:
+		switch opcode & 0x000F {
+		case 0x0:
+			fmt.Printf("LD V%X, V%X\n", x, y)
+		case 0x1:
+			fmt.Printf("OR V%X, V%X\n", x, y)
+		case 0x2:
+			fmt.Printf("AND V%X, V%X\n", x, y)
+		case 0x3:
+			fmt.Printf("XOR V%X, V%X\n", x, y)
+		case 0x4:
+			fmt.Printf("ADD V%X, V%X\n", x, y)
+		case 0x5:
+			fmt.Printf("SUB V%X, V%X\n", x, y)
+		case 0x6:
+			fmt.Printf("SHR V%X {, V%X}\n", x, y)
+		case 0x7:
+			fmt.Printf("SUBN V%X, V%X\n", x, y)
+		case 0xE:
+			fmt.Printf("SHL V%X {, V%X}\n", x, y)
+		default:
+			fmt.Printf("UNKNOWN 8-series: %04X\n", opcode)
+		}
+
+	case 0x9000:
+		if n == 0 {
+			fmt.Printf("SNE V%X, V%X\n", x, y)
+		} else {
+			fmt.Printf("UNKNOWN 9-series: %04X\n", opcode)
+		}
+
+	case 0xA000:
+		fmt.Printf("LD I, 0x%03X\n", nnn)
+
+	case 0xD000:
+		fmt.Printf("DRW V%X, V%X, %X\n", x, y, n)
+	case 0xF000:
+	switch opcode & 0xF0FF {
+
+	case 0xF015:
+		fmt.Printf("LD DT, V%X\n", x)
+
+	case 0xF007:
+		fmt.Printf("LD V%X, DT\n", x)
+
+	case 0xF018:
+		fmt.Printf("LD ST, V%X\n", x)
+
 	default:
-		fmt.Println("SYS (ignored)")
+		fmt.Printf("UNKNOWN F-series: %04X\n", opcode)
 	}
 	default:
-		fmt.Println("SYS (ignored)")
+		fmt.Printf("UNKNOWN OPCODE: %04X\n", opcode)
 	}
 }
 
-func (c *Chip8) Disassemble(start , end uint16){
+func (c *Chip8) Disassemble(start, end uint16){
 	pc:=start
 	for pc<end{
 		opcode:=uint16(c.Memory[pc])<<8 | uint16(c.Memory[pc+1])
@@ -179,8 +231,140 @@ func (c *Chip8) Execute(opcode uint16){
 		before := c.V[x]
 		c.V[x] += nn
 		fmt.Printf("ADD V%X: %d + %d = %d\n", x, before, nn, c.V[x])
+	
+	case 0x8000:
+		switch n{
+		case 0x0:
+			fmt.Printf("LD V%X = V%X (%d)\n", x, y, c.V[y])
+			c.V[x]=c.V[y]
+		case 0x1:
+			//OR
+			fmt.Printf("OR V%X |= V%X (%d | %d)\n", x, y, c.V[x], c.V[y])
+			c.V[x] |= c.V[y]
+		case 0x2:
+			fmt.Printf("AND V%X &= V%X (%d & %d)\n", x, y, c.V[x], c.V[y])
+			c.V[x]&=c.V[y]
+		case 0x3:
+			fmt.Printf("XOR V%X ^= V%X (%d ^ %d)\n", x, y, c.V[x], c.V[y])
+			c.V[x]^=c.V[y]
+		case 0x4:
+			sum:=uint16(c.V[x])+uint16(c.V[y])
+			if sum>255{
+			c.V[0xF]=1
+
+			}else{
+				c.V[0xF]=0
+			}
+			fmt.Printf("ADD V%X += V%X (%d + %d = %d , carry=%d) \n",x,y,c.V[x],c.V[y],sum&0xFF,c.V[0xF])
+			c.V[x]=byte(sum & 0xFF)
+		case 0x5:
+			if c.V[x]>=c.V[y]{
+				c.V[0xF]=1
+			}else{
+				c.V[0xF]=0
+
+			}
+			fmt.Printf("SUB V%X = %d - %d → %d (VF=%d)\n",x,c.V[x],c.V[y],c.V[x]-c.V[y],c.V[0xF])
+			c.V[x]-=c.V[y]
+		
+		case 0x6:
+			// SHR shift right
+
+			c.V[0xF]=c.V[x]& 0x1 // save lsb to register
+			fmt.Printf("SHR V%X (before=%d, LSB=%d)\n",x,c.V[x],c.V[0xF])
+			c.V[x]>>=1
+		
+		case 0x7:
+			if c.V[y]>=c.V[x]{
+				c.V[0xF]=1
+
+			}else{
+				c.V[0xF]=0
+			}
+			fmt.Printf("SUBN V%X = V%X- V%X (%d - %d = %d)\n",x, y, x,c.V[y],c.V[x],c.V[y]-c.V[x])
+			c.V[x]=c.V[y]-c.V[x]
+		
+		case 0xE:
+			// SHL left shift
+
+			c.V[0xF]=(c.V[x]& 0x80)>>7
+			fmt.Printf("SHL V%X (before=%d, MSB=%d)\n",x,c.V[x],c.V[0xF])
+			c.V[x]<<=1
+		
+		default:
+			fmt.Println("unknown 8XY* opcode")
+		
+		}
+	case 0x9000:
+		if n==0{
+			if c.V[x]!=c.V[y]{
+				fmt.Printf("SNE V%X != V%X -> SKIP NEXT \n",x,y)
+			}else{
+				fmt.Printf("SNE V%X == V%X -> NO SKIP \n",x,y)
+			}
+		}
+	case 0xA000:
+		fmt.Printf("LD I = 0x%03X\n", nnn)
+		c.I = nnn
+	case 0xD000:
+		xcord:=c.V[x]%64
+		ycord:=c.V[y]%32
+		height:=int(n)
+
+		c.V[0xF]=0
+		//outer loop to iterate through rows
+		for row:=0;row<height;row++{
+			spriteByte:=c.Memory[c.I+uint16(row)]
+			// iterate through each 8 bits in byte
+			for col:=0;col<8;col++{
+				if(spriteByte&(0x80>>col))!=0{
+					dispx:=(int(xcord)+col)%64
+					dispy:=(int(ycord)+row)%32
+					index:=dispx+(dispy*64)
+
+					if c.Display[index]==1{
+						c.V[0xF]=1
+					}
+					c.Display[index]^=1
+					
+				}
+
+			}
+
+		}
+	case 0xF000:
+	switch opcode & 0xF0FF {
+
+	case 0xF015:
+		fmt.Printf("LD DT = V%X (%d)\n", x, c.V[x])
+		c.DelayTimer = c.V[x]
+
+	case 0xF007:
+		fmt.Printf("LD V%X = DT (%d)\n", x, c.DelayTimer)
+		c.V[x] = c.DelayTimer
+
+	case 0xF018:
+		fmt.Printf("LD ST = V%X (%d)\n", x, c.V[x])
+		c.SoundTimer = c.V[x]
+
+	default:
+		fmt.Printf("UNKNOWN F OPCODE: %04X\n", opcode)
+	}
 
 	default:
 		fmt.Println("UNKNOWN OPCODE")
 	}
+}
+
+func (c *Chip8) DumpDisplay() {
+    for y := 0; y < 32; y++ {
+        for x := 0; x < 64; x++ {
+            if c.Display[y*64+x] == 1 {
+                fmt.Print("█")
+            } else {
+                fmt.Print(" ")
+            }
+        }
+        fmt.Println()
+    }
 }

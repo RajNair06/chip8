@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"chip8/internal/cpu"
 )
@@ -51,30 +52,55 @@ func main() {
 	// 3. Command Execution
 	switch command {
 	case "run":
-		if err := c.LoadROM(romPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Critical: Failed to load ROM: %v\n", err)
-			os.Exit(1)
-		}
+	if err := c.LoadROM(romPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Critical: Failed to load ROM: %v\n", err)
+		os.Exit(1)
+	}
 
-		fmt.Printf("Successfully loaded: %s (%d bytes)\n", filepath.Base(romPath), c.ROMSize)
-		fmt.Printf("Starting execution at PC: 0x%04X\n", c.PC)
-		fmt.Println("--------------------------------------------------")
-		
-		c.DumpState()
-		// Start emulation loop here in the future
-		for i := 0; i < 10; i++ {
+	fmt.Printf("Successfully loaded: %s (%d bytes)\n", filepath.Base(romPath), c.ROMSize)
+	fmt.Printf("Starting execution at PC: 0x%04X\n", c.PC)
+	fmt.Println("--------------------------------------------------")
+
+	c.DumpState()
+
+	instructionsPerFrame := 10
+	debug := true // toggle this off later
+
+	for {
+		// Run CPU (multiple instructions per frame)
+		for i := 0; i < instructionsPerFrame; i++ {
+
+			// Safety: prevent runaway PC
 			if c.PC >= 4094 {
 				fmt.Println("PC out of bounds, stopping")
 				return
-		}
-	fmt.Printf("\n--- STEP %d ---\n", i)
-	
-	if !c.Step() {
-	break
-	}
-		c.DumpState()
-}
+			}
 
+			if !c.Step() {
+				return
+			}
+		}
+
+		// Debug output (disable for real ROMs)
+		if debug {
+			c.DumpDisplay()
+			c.DumpState()
+		}
+
+		// 60 Hz timing (hardware tick)
+		time.Sleep(time.Second / 60)
+
+		// Delay Timer
+		if c.DelayTimer > 0 {
+			c.DelayTimer--
+		}
+
+		// Sound Timer
+		if c.SoundTimer > 0 {
+			c.SoundTimer--
+			fmt.Println("BEEP") // placeholder for actual sound
+		}
+	}
 	case "--disasm":
 		if err := c.LoadROM(romPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
