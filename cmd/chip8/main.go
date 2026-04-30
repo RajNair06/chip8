@@ -1,94 +1,57 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	
-
-	"chip8/internal/cli"
 	"chip8/internal/cpu"
 	"chip8/internal/gui"
+	"fmt"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-const version = "1.0.0"
-
 func main() {
-	// 1. Basic Argument Validation
-	if len(os.Args) < 2 {
-		cli.PrintUsage()
-		os.Exit(1)
-	}
-
-	command := os.Args[1]
-
-	// Handle version flag early
-	if command == "--version" || command == "-v" {
-		fmt.Printf("chip8 version %s\n", cli.Version)
-		return
-	}
-
-	// Ensure we have a ROM path for run/disasm
+	// Expecting: go run ./cmd/chip8/main.go run path/to/rom.ch8
+	// os.Args[0] = program path
+	// os.Args[1] = "run"
+	// os.Args[2] = ROM path
 	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "Error: Missing ROM path\n\n")
-		cli.PrintUsage()
+		fmt.Println("Usage: chip8 run <rom_path>")
 		os.Exit(1)
 	}
 
 	romPath := os.Args[2]
 
-	// 2. Initialize CPU
+	// Check if file exists before initializing everything
+	if _, err := os.Stat(romPath); os.IsNotExist(err) {
+		fmt.Printf("Error: ROM file not found at %s\n", romPath)
+		os.Exit(1)
+	}
+
+	// 1. Initialize the Hardware
 	c := cpu.New()
 
-	// 3. Command Execution
-	switch command {
-	case "run":
-        // 1. Load the ROM into memory
-        if err := c.LoadROM(romPath); err != nil {
-            fmt.Fprintf(os.Stderr, "Critical: Failed to load ROM: %v\n", err)
-            os.Exit(1)
-        }
-
-        fmt.Printf("Successfully loaded: %s (%d bytes)\n", filepath.Base(romPath), c.ROMSize)
-        fmt.Printf("Entry Point: 0x%04X\n", c.PC)
-        fmt.Println("--------------------------------------------------")
-
-        // 2. Initialize the GUI bridge
-        ui := &gui.Gui{
-            CPU: c,
-        }
-
-        // 3. Configure the Window
-        // ScreenWidth (64) * Upscale (15) = 960px wide
-        // ScreenHeight (32) * Upscale (15) = 480px high
-        ebiten.SetWindowSize(960, 480) 
-        ebiten.SetWindowTitle("CHIP-8 Emulator | " + filepath.Base(romPath))
-        
-        // We set TPS to 60 because that's when we'll decrement timers
-        ebiten.SetTPS(60)
-        ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-
-        // 4. Start the Engine
-        // This is a blocking call. Ebiten takes over the loop.
-        if err := ebiten.RunGame(ui); err != nil {
-            fmt.Fprintf(os.Stderr, "Emulator Crash: %v\n", err)
-            os.Exit(1)
-        }
-	case "--disasm":
-		if err := c.LoadROM(romPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Disassembling %s...\n\n", filepath.Base(romPath))
-		// Starting address is 0x200 for standard CHIP-8
-		c.Disassemble(0x200, 0x200+uint16(c.ROMSize))
-
-	default:
-		fmt.Fprintf(os.Stderr, "Error: Unknown command '%s'\n\n", command)
-		cli.PrintUsage()
+	// 2. Load the ROM
+	if err := c.LoadROM(romPath); err != nil {
+		fmt.Printf("Error loading ROM: %v\n", err)
 		os.Exit(1)
+	}
+
+	// 3. Initialize the GUI (Ebiten Game implementation)
+	g := gui.NewGui(c)
+
+	// 4. Window Configuration
+	// Window size is 15x the base CHIP-8 resolution (960x480)
+	ebiten.SetWindowSize(960, 480)
+	ebiten.SetWindowTitle("CHIP-8 Systems Emulator")
+	
+	// Ensures the buffer is clean every frame to prevent 
+	// pixel ghosting and stretching artifacts.
+	ebiten.SetScreenClearedEveryFrame(true)
+
+	// 5. Fire up the VM
+	fmt.Printf("Starting emulation: %s\n", romPath)
+	if err := ebiten.RunGame(g); err != nil {
+		fmt.Printf("Emulator crashed: %v\n", err)
+		panic(err)
 	}
 }
