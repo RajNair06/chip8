@@ -1,57 +1,141 @@
 package main
 
 import (
+	"chip8/internal/cli"
 	"chip8/internal/cpu"
 	"chip8/internal/gui"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func main() {
-	// Expecting: go run ./cmd/chip8/main.go run path/to/rom.ch8
-	// os.Args[0] = program path
-	// os.Args[1] = "run"
-	// os.Args[2] = ROM path
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: chip8 run <rom_path>")
+	cfg, err := cli.Parse(os.Args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+		cli.PrintUsage()
 		os.Exit(1)
 	}
 
-	romPath := os.Args[2]
+	switch cfg.Command {
+	case "version":
+		cli.PrintVersion()
+		return
+	case "help":
+		cli.PrintUsage()
+		return
+	case "disasm":
+		runDisasm(cfg.RomPath)
+		return
+	case "run":
+		runEmulator(cfg)
+	default:
+		cli.PrintUsage()
+		os.Exit(1)
+	}
+}
 
-	// Check if file exists before initializing everything
-	if _, err := os.Stat(romPath); os.IsNotExist(err) {
-		fmt.Printf("Error: ROM file not found at %s\n", romPath)
+// ── Disassembler mode ─────────────────────────────────────────────────────────
+func runDisasm(romPath string) {
+	data, err := os.ReadFile(romPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading ROM: %v\n", err)
+		os.Exit(1)
+	}
+	lines := cpu.DisasmROM(data)
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+}
+
+// ── Emulator mode ─────────────────────────────────────────────────────────────
+func runEmulator(cfg cli.Config) {
+	// Validate ROM
+	if _, err := os.Stat(cfg.RomPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Error: ROM not found: %s\n", cfg.RomPath)
 		os.Exit(1)
 	}
 
-	// 1. Initialize the Hardware
+	// 1. Initialize CPU
 	c := cpu.New()
-
-	// 2. Load the ROM
-	if err := c.LoadROM(romPath); err != nil {
-		fmt.Printf("Error loading ROM: %v\n", err)
+	if err := c.LoadROM(cfg.RomPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading ROM: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 3. Initialize the GUI (Ebiten Game implementation)
-	g := gui.NewGui(c)
+	// 2. Done channel for goroutine cleanup
+	done := make(chan struct{})
 
-	// 4. Window Configuration
-	// Window size is 15x the base CHIP-8 resolution (960x480)
-	ebiten.SetWindowSize(960, 480)
-	ebiten.SetWindowTitle("CHIP-8 Systems Emulator")
-	
-	// Ensures the buffer is clean every frame to prevent 
-	// pixel ghosting and stretching artifacts.
-	ebiten.SetScreenClearedEveryFrame(true)
+	// ── Goroutine: CPU at 500Hz ────────────────────────────────────────────
+	// Each tick = 1 instruction. 500Hz ≈ 2ms per instruction.
+	go func() {
+		ticker := time.NewTicker(time.Second / time.Duration(cfg.Speed))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				c.Mu.Lock()
+				c.Step()
+				c.Mu.Unlock()
+			}
+		}
+	}()
 
-	// 5. Fire up the VM
-	fmt.Printf("Starting emulation: %s\n", romPath)
-	if err := ebiten.RunGame(g); err != nil {
-		fmt.Printf("Emulator crashed: %v\n", err)
-		panic(err)
+	// ── Goroutine: Timers at 60Hz ──────────────────────────────────────────
+	go func() {
+		ticker := time.NewTicker(time.Second / 60)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				c.Mu.Lock()
+				if c.DelayTimer > 0 {
+					c.DelayTimer--
+				}
+				if c.SoundTimer > 0 {
+					c.SoundTimer--
+				}
+				c.Mu.Unlock()
+			}
+		}
+	}()
+
+	// ── Goroutine: Metrics reporter ────────────────────────────────────────
+	go cpu.MetricsReporter(c, done)
+
+	// 3. Initialize GUI
+	g := gui.NewGui(c, cfg.RomPath, cfg.Debug)
+
+	// 4. Window setup
+	if cfg.Debug {
+		ebiten.SetWindowSize(gui.TotalW, gui.GameH)
+		ebiten.SetWindowTitle("CHIP-8 Systems Emulator — DEBUG MODE")
+	} else {
+		ebiten.SetWindowSize(gui.GameW, gui.GameH)
+		ebiten.SetWindowTitle("CHIP-8 Systems Emulator")
 	}
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+
+	fmt.Printf("┌──────────────────────────────────────────┐\n")
+	fmt.Printf("│ CHIP-8 Systems Emulator v%s             │\n", cli.Version)
+	fmt.Printf("│ ROM:   %-34s│\n", cfg.RomPath)
+	fmt.Printf("│ Speed: %-4d Hz  Debug: %-18v│\n", cfg.Speed, cfg.Debug)
+	fmt.Printf("│ Keys:  1234/QWER/ASDF/ZXCV  ESC=pause   │\n")
+	fmt.Printf("└──────────────────────────────────────────┘\n")
+
+	// 5. Run (blocks until window closed)
+	if err := ebiten.RunGame(g); err != nil {
+		fmt.Fprintf(os.Stderr, "Emulator error: %v\n", err)
+		close(done)
+		os.Exit(1)
+	}
+
+	// Cleanup goroutines
+	close(done)
 }
