@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	
 
 	"chip8/internal/cli"
 	"chip8/internal/cpu"
+	"chip8/internal/gui"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 const version = "1.0.0"
@@ -42,55 +45,37 @@ func main() {
 	// 3. Command Execution
 	switch command {
 	case "run":
-		if err := c.LoadROM(romPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Critical: Failed to load ROM: %v\n", err)
-			os.Exit(1)
-		}
+        // 1. Load the ROM into memory
+        if err := c.LoadROM(romPath); err != nil {
+            fmt.Fprintf(os.Stderr, "Critical: Failed to load ROM: %v\n", err)
+            os.Exit(1)
+        }
 
-		fmt.Printf("Successfully loaded: %s (%d bytes)\n", filepath.Base(romPath), c.ROMSize)
-		fmt.Printf("Starting execution at PC: 0x%04X\n", c.PC)
-		fmt.Println("--------------------------------------------------")
+        fmt.Printf("Successfully loaded: %s (%d bytes)\n", filepath.Base(romPath), c.ROMSize)
+        fmt.Printf("Entry Point: 0x%04X\n", c.PC)
+        fmt.Println("--------------------------------------------------")
 
-		c.DumpState()
+        // 2. Initialize the GUI bridge
+        ui := &gui.Gui{
+            CPU: c,
+        }
 
-		instructionsPerFrame := 10
-		debug := true // toggle this off later
+        // 3. Configure the Window
+        // ScreenWidth (64) * Upscale (15) = 960px wide
+        // ScreenHeight (32) * Upscale (15) = 480px high
+        ebiten.SetWindowSize(960, 480) 
+        ebiten.SetWindowTitle("CHIP-8 Emulator | " + filepath.Base(romPath))
+        
+        // We set TPS to 60 because that's when we'll decrement timers
+        ebiten.SetTPS(60)
+        ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
-		for {
-			// Run CPU (multiple instructions per frame)
-			for i := 0; i < instructionsPerFrame; i++ {
-
-				// Safety: prevent runaway PC
-				if c.PC >= 4094 {
-					fmt.Println("PC out of bounds, stopping")
-					return
-				}
-
-				if !c.Step() {
-					return
-				}
-			}
-
-			// Debug output (disable for real ROMs)
-			if debug {
-				c.DumpDisplay()
-				c.DumpState()
-			}
-
-			// 60 Hz timing (hardware tick)
-			time.Sleep(time.Second / 60)
-
-			// Delay Timer
-			if c.DelayTimer > 0 {
-				c.DelayTimer--
-			}
-
-			// Sound Timer
-			if c.SoundTimer > 0 {
-				c.SoundTimer--
-				fmt.Println("BEEP") // placeholder for actual sound
-			}
-		}
+        // 4. Start the Engine
+        // This is a blocking call. Ebiten takes over the loop.
+        if err := ebiten.RunGame(ui); err != nil {
+            fmt.Fprintf(os.Stderr, "Emulator Crash: %v\n", err)
+            os.Exit(1)
+        }
 	case "--disasm":
 		if err := c.LoadROM(romPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
