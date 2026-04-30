@@ -47,9 +47,9 @@ func MetricsReporter(c *Chip8, done <-chan struct{}) {
 				avgJitter /= float64(len(jitterSamples))
 			}
 
-			status := "✓"
+			status := "[SAFE]"
 			if ips < 450 || ips > 550 {
-				status = "⚠"
+				status = "[DANGER]"
 			}
 			fmt.Printf("[METRICS] IPS: %4d %s  | Jitter: %.1fms\n", ips, status, avgJitter)
 

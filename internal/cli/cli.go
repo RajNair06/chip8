@@ -91,7 +91,7 @@ func PrintUsage() {
 
 func PrintVersion() {
 	fmt.Printf("CHIP-8 Systems Emulator v%s\n", Version)
-	fmt.Printf("Phases complete: 1–10 (Professional Grade)\n")
+	fmt.Printf("Phases complete: 1-10 (Professional Grade)\n")
 	fmt.Printf("Opcodes: 35/35 ✓\n")
 	fmt.Printf("Features: Goroutine CPU, 500Hz timing, Debug Panel, Disassembler\n")
 }
